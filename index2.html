@@ -1,0 +1,518 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Covid</title>
+<meta charset="UTF-8">
+<meta name="description" content="Covid Project">
+<meta name="keywords" content="corona,covid,sars">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+@media only screen and (max-height: 900px) {
+    #chat { height: 649px !important; }
+    #list { height: 651px !important; }
+}
+@media only screen and (max-height: 720px) {
+    #chat { height: 549px !important; }
+    #list { height: 551px !important; }
+}
+@media only screen and (max-height: 600px) {
+    #chat { height: 419px !important; }
+    #list { height: 421px !important; }
+}
+@media only screen and (max-height: 460px) {
+    #chat { height: 339px !important; }
+    #list { height: 341px !important; }
+}
+html, body { margin: 0;height: 100%; }
+body {
+    text-align: center;
+    background-color: silver;
+}
+#main, #login {
+    width: 100%;
+    right: 0;
+    left: 0;
+    margin: auto auto;
+    top: 0;
+    bottom: 0;
+    height: fit-content;
+    position: absolute;
+}
+#main {
+    display: none;
+    max-width: 1200px;
+}
+#chat {
+    width: 83%;
+    height: 849px;
+    display: inline-block;
+    margin-bottom: -3px;
+    border: 1px solid black;
+    background-color: white;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    overflow-wrap: break-word;
+    text-align: left;
+}
+#list {
+    width: 16.6%;
+    height: 851px;
+    border: 1px solid black;
+    font-size: large;
+}
+#enter input[type=text] {
+    width: 83%;
+    display: inline-block;
+    padding: 0;
+    border: 1px solid black;
+    font-size: large;
+}
+#enter input[type=submit] {
+    width: 16.6%;
+    padding: 0;
+    border: 1px solid black;
+    font-size: large;
+}
+.time, .line { display: inline; }
+.time { font-size: small; }
+#url { margin-top: 40px; }
+fieldset {
+    border: 1px solid black;
+    width: 300px;
+    margin: 0 auto;
+    background-color: lightgray;
+}
+legend {
+    background-color: lightgreen;
+}
+.status {
+    font-size: x-large;
+}
+</style>
+<script src="https://unpkg.com/ipfs@0.34.4/dist/index.min.js"></script>
+</head>
+<body>
+<div id="login">
+<fieldset><legend>Covid v0.1</legend>
+<form id="init" onsubmit="return init(this)" action="javascript: void(0)">
+<input type="text" name="user" placeholder="Username" autofocus required pattern="[A-Z][a-zA-Z0-9]{1,16}" oninvalid="setCustomValidity('First character must be capital case')" oninput="setCustomValidity('')" style="width: 200px"><br><br>
+</form>
+</fieldset>
+</div>
+<div id="main">
+<div id="chat"></div><select id="list" size="15"></select>
+<form id="enter" onsubmit="return frmSend(this)" action="javascript: void(0)">
+<input type="text" name="send" disabled></input><input type="submit" value="Send" disabled></input>
+</form>
+</div>
+<script>
+// https://github.com/webrtc/adapter
+const room = {
+    list: [], // users list
+    wait: true, // wait status, until it gets the users list
+    temp: {}, // temporary users list
+    id:   new URLSearchParams(window.location.search).get('room')
+};
+function rand58(len) {
+    return String.fromCharCode.apply(null, window.crypto.getRandomValues(new Uint8Array(len)).map(x => '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.charCodeAt(x % 58)));
+}
+if (room.id) {
+    room.id = room.id.trim();
+    if (room.id.length === 20) { document.getElementById('init').innerHTML += ' <button onclick="this.form.submit()">Join ' + room.id + '</button><br>or<br>'; }
+}
+document.getElementById('init').innerHTML += '<button onclick="room.id=rand58(20);this.form.submit()">Create new Room</button>';
+
+function init(frm) {
+    room.user = frm.user.value;
+    addUser(room.user);
+
+    room.url = window.location.origin + window.location.pathname + '?room=' + room.id;
+
+    document.getElementById('chat').innerHTML  = 'Room URL: <a href="' + room.url + '" target="_blank">' + room.url + '</a><br>';
+    document.getElementById('login').innerHTML = '<span class="status">Connecting to peers ...</span>';
+
+    room.ipfs = new Ipfs({
+        repo: String(Math.random() + Date.now()),
+        EXPERIMENTAL: {pubsub: true},
+        config: {Addresses: {Swarm: ['/dns4/ws-star.discovery.libp2p.io/tcp/443/wss/p2p-websocket-star/ipfs/' + room.id, '/dns4/ws-star.discovery.libp2p.io/tcp/443/wss/p2p-websocket-star']}}
+    })
+    .on('ready', () => {
+        const getPeers = () => {
+            room.ipfs.swarm.peers((err, peers) => {
+                if (err) { return console.error('Error: swarm.peers()', err); }
+                console.log('Peers:', peers);
+                if (!peers || peers.length == 0) { return setTimeout(getPeers, 1000); }
+                // ready?
+                room.ipfs.pubsub.subscribe(
+                    room.id,
+                    mesg => ipfsOnMessage(mesg.data.toString('utf8')),
+                    err2 => {
+                        if (err2) { return console.error('Error: pubsub.subscribe() failed to subscribe', err2); }
+                        console.log('Subscribe to ' + room.id + ' complete.');
+                        document.getElementById('login').innerHTML = '<span class="status">Subscribe to ' + peers.length + ' peers (<span id="timer">14</span>) ...</span>';
+                        //ipfsPublish({fc: "join", user: user});
+                        setTimeout(ipfsPublish, 14000, {fc: 'join', user: room.user});
+                        room.tm = setInterval(timer, 1000); // countdown
+                });
+            });
+        };
+        getPeers();
+    });
+    return false;
+}
+
+function ipfsOnMessage(data) {
+    try {
+        data = JSON.parse(data);
+        if (!('fc' in data && typeof data.fc === "string" && data.fc in room.fc)) { throw new Error('ipfsOnMessage() "fc" not found'); }
+    } catch (err) {
+        return console.error('Error: ipfsOnMessage() invalid JSON data', data);
+    }
+    //console.log("ipfsOnMessage():", data);
+    room.fc[data.fc](data);
+}
+
+function ipfsPublish(data) {
+    //console.log('ipfsPublish()', data);
+    room.ipfs.pubsub.publish(
+        room.id,
+        room.ipfs.types.Buffer.from(JSON.stringify(data)),
+        err => {
+            if (err) { return console.error('Error: pubsub.publish() failed to publish', err, data); }
+            //console.log('Publish complete:', data);
+    });
+}
+
+async function getMedia() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+                width: {ideal: 1280},
+                height: {ideal: 1240}
+            }
+        });
+        return stream;
+    } catch (err) {
+        alert('Media Device - ' + err.message);
+        return null;
+    }
+}
+
+room.fc = { // list of call functions
+    'join': async (data) => {
+        //{fc: "join", user: room.user}
+        if (!('user' in data && typeof data.user === "string")) { return console.warn("Error: fc.join() no data.user", data); }
+        if (room.user === data.user) {
+
+            //const stream = await getMedia();
+            //if (!stream) { return; }
+            //room.stream = stream;
+            //onaddstream.call({user: data.user}, {stream: stream});
+
+            document.getElementById('login').innerHTML = '<span class="status">Get users list (<span id="timer">6</span>) ...</span>';
+            ipfsPublish({fc: 'getlist', user: room.user}); // get room users list
+            setTimeout(compareList, 6000); // wait 6 seconds to get users list and then compare results
+        } else {
+            console.log('Join:', data.user);
+            addText(' >> ' + data.user + ' join.');
+        }
+    },
+    'getlist': (data) => {
+        //{fc: 'getlist', user: room.user}
+        if ('user' in data && typeof data.user === "string" && room.user !== data.user) {
+            ipfsPublish({fc: 'postlist', user: room.user, list: room.list});
+        }
+    },
+    'postlist': (data) => {
+        //{fc: 'postlist', user: room.user, list: list}
+        if (room.wait && 'user' in data && typeof data.user === "string" && room.user !== data.user && 'list' in data && Array.isArray(data.list) && data.list.length > 0) {
+            room.temp[data.user] = data.list.sort(); // sort users list
+        }
+    },
+    'offer': (data) => {
+        //{fc: 'ofeer', from: user, to: peer, offer: rtc[peer].localDescription}
+        if (!('from' in data && typeof data.from === "string" && 'to' in data && typeof data.to === "string")) { return console.warn("Error: fc.offer() from/to", data); }
+        if (!('offer' in data && typeof data.offer === "object")) { return console.warn("Error: fc.offer() no data.offer", data); }
+        if (!(room.user !== data.from && data.to === room.user)) { return; }
+        rtcConn(data.from, data.offer);
+    },
+    'addice': (data) => {
+        //{fc: 'addice', from: room.user, to: peer, candidate: obj.candidate}
+        if (!('from' in data && typeof data.from === "string" && 'to' in data && typeof data.to === "string")) { return console.warn("Error: fc.addice() from/to", data); }
+        if (!('candidate' in data && typeof data.candidate === "object")) { return console.warn("Error: fc.addice() no data.candidate", data); }
+        if (!(room.user !== data.from && data.to === room.user)) { return; }
+        if (!(data.from in rtc)) { return console.warn("Error: fc.addice() no rtc connection from:", data.from); }
+        rtc[data.from].addIceCandidate(new RTCIceCandidate(data.candidate), function () {
+			console.log('fc.addice() addIceCandidate() success', data);
+        },
+        function (err) {
+            console.error('fc.addice() addIceCandidate() error', err);
+        });
+    },
+    'answer': (data) => {
+        //{fc: 'answer', from: room.user, to: peer, answer: rtc[peer].localDescription}
+        if (!('from' in data && typeof data.from === "string" && 'to' in data && typeof data.to === "string")) { return console.warn("Error: fc.answer() from/to", data); }
+        if (!('answer' in data && typeof data.answer === "object")) { return console.warn("Error: fc.answer() no data.answer", data); }
+        if (!(room.user !== data.from && data.to === room.user)) { return; }
+        if (!(data.from in rtc)) { return console.warn("Error: fc.answer() no rtc connection from:", data.from); }
+        rtc[data.from].setRemoteDescription(new RTCSessionDescription(data.answer), function () {
+            ipfsPublish({fc: 'answer2', from: room.user, to: data.from, answer: rtc[data.from].localDescription});
+			//wsSend('answer2',{user:o.user,type:o.type,answer:rtc[o.type+'_'+o.user].localDescription});
+            //if(o.type==='data'){id('u_'+o.user).style.backgroundColor='#eeeffb';}
+            console.log('fc.answer() setRemoteDescription() success -', data.from);
+            //addUser(data.from);
+        },
+        function (err) {
+            console.error('fc.answer() setRemoteDescription() error', data, err);
+        });
+    },
+    'answer2': (data) => {
+        //{fc: 'answer', from: room.user, to: data.from, answer: rtc[peer].localDescription}
+        if (!('from' in data && typeof data.from === "string" && 'to' in data && typeof data.to === "string")) { return console.warn("Error: fc.answer2() from/to", data); }
+        if (!('answer' in data && typeof data.answer === "object")) { return console.warn("Error: fc.answer2() no data.answer", data); }
+        if (!(room.user !== data.from && data.to === room.user)) { return; }
+        if (!(data.from in rtc)) { return console.warn("Error: fc.answer2() no rtc connection for from:", data.from); }
+        //if(o.type==='data'){id('u_'+o.user).style.backgroundColor='#eeeffb';}
+        rtc[data.from].setRemoteDescription(new RTCSessionDescription(data.answer), function () {
+            console.log('fc.answer2() setRemoteDescription() success -', data.from);
+            //addUser(data.from);
+		}, function (err) {
+            console.error('fc.answer2() setRemoteDescription() error', data, err);
+        });
+    }
+};
+
+function onaddstream(obj) {
+    const video = document.createElement('video');
+    if (this.user === user) { video.muted = true; }
+    video.id = this.user;
+    video.controls = true;
+	video.autoplay = true;
+	video.srcObject = obj.stream;
+    document.body.appendChild(video);
+}
+
+// invite file:///D:/Discord/Corona/index.html?room=jiozrb8vkdnZz2bDkLy6
+const rtc = {};
+const chd = {};
+function rtcConn(peer, offer) {
+    rtc[peer] = new RTCPeerConnection({'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}, {'urls': 'stun:stun.voipzoom.com:3478'}, {'urls': 'stun:stun2.l.google.com:19302'}]}); // first stun and last turn
+    rtc[peer].user = peer;
+    rtc[peer].onnegotiationneeded    = function () { console.log('onnegotiationneeded()', arguments, this); };
+	rtc[peer].onsignalingstatechange = function () {
+        console.log('onsignalingstatechange()', arguments, this, this.connectionState);
+        if (this.connectionState === 'failed' || this.connectionState === 'closed') { rmUser(this.user); }
+    };
+	rtc[peer].oniceconnectionstatechange = function () {
+		console.log('oniceconnectionstatechange()', arguments, this, this.connectionState);
+		if (this.connectionState === 'failed' || this.connectionState === 'closed') { rmUser(this.user); }
+    };
+    rtc[peer].onicecandidate = function (obj) {
+        console.log('rtcConn() onicecandidate()', peer, obj);
+        if (obj.candidate) {
+            ipfsPublish({fc: 'addice', from: room.user, to: peer, candidate: obj.candidate});
+            //wsSend('addice',{user:u,type:t,candidate:o.candidate});
+        }
+    };
+    if (offer) {
+        // -------
+        rtc[peer].ondatachannel = function (event) {
+            console.log('ondatachannel()', this.user, event, arguments);
+            chd[this.user] = event.channel;
+            chdBind(this.user);
+        };
+        // -------
+        rtc[peer].setRemoteDescription(new RTCSessionDescription(offer), function () {
+			rtc[peer].createAnswer(function (answer) {
+				rtc[peer].setLocalDescription(new RTCSessionDescription(answer), function () {
+                    ipfsPublish({fc: 'answer', from: room.user, to: peer, answer: rtc[peer].localDescription});
+                    //wsSend('answer',{user:u,type:t,answer:rtc[c].localDescription});
+                    //console.log('rtcConn() rtc2 setLocalDescription()', {from: room.user, to: peer}, rtc[peer].localDescription);
+				}, function (err) {
+                    console.error('rtcConn() rtc2 setLocalDescription() error', {from: room.user, to: peer}, err);
+                });
+            },
+            function (err) {
+                console.error('rtcConn() rtc2 createAnswer() error', {from: room.user, to: peer}, err);
+            });
+        },
+        function (err) {
+            console.error('rtcConn() rtc2 setRemoteDescription() error', {from: room.user, to: peer}, err);
+        });
+    } else {
+        // ------
+        //rtc[c].createDataChannel(room+new Date().getTime(),t==='data'?{reliable:true,ordered:true}:{reliable:true,ordered:true,binaryType:'arraybuffer'});/*{reliable:false,ordered:false,maxRetransmitTime:0,binaryType:'blob' 'arraybuffer'}*/
+        chd[peer] = rtc[peer].createDataChannel(room.id); // , {reliable: true, ordered: true}
+        chdBind(peer);
+        // ------
+        rtc[peer].createOffer(function (offer) {
+            rtc[peer].setLocalDescription(new RTCSessionDescription(offer), function () {
+                        ipfsPublish({fc: 'offer', from: room.user, to: peer, offer: rtc[peer].localDescription});
+                        //wsSend('offer',{user:u,type:t,offer:rtc[c].localDescription});
+                        //console.log('rtcConn() rtc1 setLocalDescription()', {from: room.user, to: peer}, rtc[peer].localDescription);
+                    },
+                    function (err) {
+                        console.error('rtcConn() rtc1 setLocalDescription() error', {from: room.user, to: peer}, err);
+                    }
+                );
+            },
+            function (err) {
+                console.error('rtcConn() rtc1 createOffer() error', {from: room.user, to: peer}, err);
+            }
+        );
+    }
+}
+
+function compareList() {
+    document.getElementById('login').style.display = 'none';
+    document.getElementById('main').style.display = 'block';
+    //
+    if (room.tm) { clearInterval(room.tm); }
+    //
+    room.wait = false; // stop
+    const tmp = {};
+    for (const peer in room.temp) {
+        const str = JSON.stringify(room.temp[peer]);
+        tmp[str] = str in tmp ? tmp[str] + 1 : 0;
+    }
+    room.temp = {}; // reset
+    const arr = Object.keys(tmp);
+    if (arr.length > 0) {
+        const obj = {list: arr[0], count: tmp[arr[0]]}; // init values
+        for (const lst in tmp) {
+            if (tmp[lst] > obj.count) { obj.list = lst; obj.count = tmp[lst]; }
+        }
+        //console.log('Users list:', JSON.parse(obj.list));
+        for (const user of JSON.parse(obj.list)) {
+            if (user !== room.user) { rtcConn(user); }
+        }
+    } else {
+        console.log('Room is empty.');
+    }
+}
+
+function chdBind(peer) {
+    chd[peer].user      = peer;
+	chd[peer].onopen    = function () {
+        console.log('chdBind() onopen', arguments, this);
+        addUser(this.user);
+    };
+	chd[peer].onerror   = function () { console.log('chdBind() onerror', arguments, this); };
+	chd[peer].onmessage = function (obj) {
+        //console.log('chdBind() onmessage', arguments, this);
+        let msg;
+        try {
+            msg = JSON.parse(obj.data);
+        } catch (err) {
+            return console.error('chdBind() onmessage parse error:', err);
+        }
+        if ('from' in msg && typeof msg.from === "string" && 'text' in msg && typeof msg.text === "string" && msg.from !== room.user && room.list.includes(msg.from)) {
+            addText(msg.from + ': ' + msg.text);
+        }
+	};
+	chd[peer].onclose = function () {
+        console.log('chdBind() onclose', arguments, this);
+        rtc[this.user].close();
+	};
+}
+
+////////////////
+
+function addUser(user) {
+    if (room.list.includes(user)) { return; }
+    if (room.list.length === 1) {
+        if (document.querySelector('#enter input[type=text]').disabled) { document.querySelector('#enter input[type=text]').disabled = false; }
+        if (document.querySelector('#enter input[type=submit]').disabled) { document.querySelector('#enter input[type=submit]').disabled = false; }
+    }
+    //
+    room.list.push(user);
+    room.list.sort(); // sort users list
+    //
+    const opt = document.createElement('option');
+    opt.text  = user;
+    if (user === room.user) {
+        opt.style.color = 'blue';
+        opt.style.fontWeight = 'bold';
+    }
+    document.getElementById('list').add(opt);
+}
+function rmUser(user) {
+    if (user in chd) { delete chd[user]; }
+    if (user in rtc) { delete rtc[user]; }
+    //
+    const index = room.list.indexOf(user);
+    if (index >= 0) {
+        room.list.splice(index, 1);
+        room.list.sort();
+        // remove from select options list
+        for (const opt of document.getElementById('list').options) {
+            if (opt.text === user) {
+                document.getElementById('list').removeChild(opt);
+                addText(' >> ' + user + ' left.');
+                break;
+            }
+        }
+    }
+    if (room.list.length === 1) {
+        if (!document.querySelector('#enter input[type=text]').disabled) { document.querySelector('#enter input[type=text]').disabled = true; }
+        if (!document.querySelector('#enter input[type=submit]').disabled) { document.querySelector('#enter input[type=submit]').disabled = true; }
+    }
+}
+
+function getTime() {
+	const d = new Date(), h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+	return (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+}
+
+function addText(text, elm) {
+    if (document.getElementById('main').style.display !== 'block') { return; }
+    const chat = document.getElementById('chat');
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.innerText = '[' + getTime() + ']';
+    const span = document.createElement('span');
+    span.className = 'line';
+    span.innerText = text;
+    const isScrollBottom = (document.getElementById('chat').scrollTop + document.getElementById('chat').clientHeight === document.getElementById('chat').scrollHeight);
+	chat.innerHTML += time.outerHTML + span.outerHTML;
+	//if (elm) { chat.appendChild(document.createTextNode(elm)); }
+	chat.innerHTML += '<br>';
+    if (isScrollBottom) { chat.scrollTop = chat.scrollHeight; }
+}
+
+function frmSend(frm) {
+    if (room.list.length < 2) { return alert('Room is empty.'); }
+    const txt = frm.send.value.trim();
+    for (const peer in chd) { // for each data channel
+        if (chd[peer].readyState === 'open') {
+            chd[peer].send(JSON.stringify({from: room.user, text: txt}));
+        } else {
+            rtc[peer].close();
+        }
+    }
+    addText(room.user + ': ' + txt);
+    frm.send.value = '';
+    return false;
+}
+
+///////////////////////
+
+function timer() {
+    const tm = document.getElementById('timer');
+    if (tm) {
+        cr = parseInt(tm.innerText);
+        if (cr > 0) { tm.innerText = cr - 1; }
+    }
+}
+// window.onunload
+window.onbeforeunload = function () {
+    //for (peer in chd) { // for each data channel
+    //    if (chd[peer].readyState === 'open') { chd[peer].close(); }
+    //}
+    for (const peer in rtc) { rtc[peer].close(); }
+};
+</script>
+</body>
+</html>
